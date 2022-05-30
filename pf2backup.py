@@ -5,7 +5,10 @@ import json
 import os
 import csv
 from sys import argv, exit
+from lxml import etree, objectify
 import xmltodict
+from json2xml import json2xml
+from json2xml.utils import readfromstring, readfromjson
 
 from hide_data import USR_Tocken, PSR_Tocken, PSR_Tocken2, PF_ACCOUNT
 
@@ -251,8 +254,6 @@ if __name__ == "__main__":
     for process in processes_loaded:
         processes_bpmn[int(process)] = processes_loaded[process]
 
-
-
     print('\n', datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
           'Загружаем список процессов, статусов, шаблонов, проектов и юзеров')
     processes = {}
@@ -290,21 +291,45 @@ if __name__ == "__main__":
             users[int(user)] = users_loaded[user]
 
     try:
+        process_template = 0
         for process in processes:
             process_templates = []
             for tasktemplate in tasktemplates:
                 if tasktemplates[tasktemplate].get('statusSet'):
                     if int(tasktemplates[tasktemplate]['statusSet']) == process:
                         process_templates.append(tasktemplate)
-            if process in [230526]: # len(process_templates) < 5: # 229670 - стандартный, 230634 - для смены на Новую
-                processes[process]['threads'] = {}
-                processes[process]['task_snapshots'] = {}
-                processes[process]['start_members'] = {}
+            if process in [230574]: # len(process_templates) < 5: # 229670 - стандартный, 230634 - для смены на Новую
                 # Для каждого шаблона процесса
                 for process_template in process_templates:
+                    processes[process][process_template] = {}
                     # Считываем задачу-шаблон
                     response = api_load_from_point('task.get', '<task><id>' + str(process_template) + '</id></task>')
+                    # Сохраняем исходные значения шаблона
                     start_members = xmltodict.parse(response)['response']['task']['members']
+                    start_auditors = xmltodict.parse(response)['response']['task']['auditors']
+                    start_workers = xmltodict.parse(response)['response']['task']['workers']
+                    temp_union = {'members': start_members,
+                                  'auditors': start_auditors,
+                                  'workers': start_workers}
+                    with open(os.path.join(PF_BACKUP_DIRECTORY, 'last_template.json'), 'w') as write_file:
+                        json.dump(temp_union, write_file, ensure_ascii=False)
+                    # Убираем в шаблоне всех юзеров, чтобы их не беспокоить
+                    api_load_from_point(
+                        'task.update',
+                        '<silent>1</silent><task><id>' + str(process_template) + '</id><workers><users><id>5309784</id>'
+                        + '<id>5303022</id></users></workers><members><users><id>5309784</id>'
+                        + '<id>5303022</id></users></members><auditors><users><id>5309784</id>'
+                        + '<id>5303022</id></users></auditors></task>')
+                    # Восстанавливаем юзеров в шаблоне
+                    with open(os.path.join(PF_BACKUP_DIRECTORY, 'last_template.json'), 'r') as read_file:
+                        temp_string = read_file.read()
+                    api_load_from_point(
+                        'task.update',
+                        '<silent>1</silent><task><id>' + str(process_template) + '</id>'
+                        + '\n'.join(str(json2xml.Json2xml(
+                            readfromstring(temp_string),
+                            attr_type=False).to_xml()
+                                        ).split('\n')[2:-2]) + '</task>')
                     statuses2task_snapshot = {}
                     threads2statuses = [[]]
                     thread_id = -1
@@ -420,16 +445,22 @@ if __name__ == "__main__":
                             # Удаляем задачу сканирования через баг смены процесса в задаче
                             response = api_load_from_point(
                                 'task.update',
-                                '<silent>1</silent><task><id>' + str(scan_task_id) + '</id><statusSet>230634</statusSet></task>')
+                                '<silent>1</silent><task><id>' + str(scan_task_id)
+                                    + '</id><statusSet>230634</statusSet></task>')
                             continue
                     # Сохраняем результаты ветки
-                    processes[process]['threads'][process_template] = threads2statuses
-                    processes[process]['task_snapshots'][process_template] = statuses2task_snapshot
-                    processes[process]['start_members'][process_template] = start_members
+                    processes[process][process_template]['threads'] = threads2statuses
+                    processes[process][process_template]['task_snapshots'] = statuses2task_snapshot
+                    processes[process][process_template]['start_auditors'] = start_auditors
+                    processes[process][process_template]['start_members'] = start_members
+                    processes[process][process_template]['start_workers'] = start_workers
                     q=0
     finally:
         with open(os.path.join(PF_BACKUP_DIRECTORY, 'processes_bpmn.json'), 'w') as write_file:
             json.dump(processes, write_file, ensure_ascii=False)
+        if process_template:
+            pass
+
         print('\n', datetime.now().strftime('%d.%m.%Y %H:%M:%S'),
                '==================== Работа скрипта завершена ================')
     q=0

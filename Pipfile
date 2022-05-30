@@ -6,6 +6,8 @@ name = "pypi"
 [packages]
 requests = "*"
 xmltodict = "*"
+lxml = "*"
+json2xml = "*"
 
 [dev-packages]
 

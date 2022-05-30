@@ -151,30 +151,47 @@ if __name__ == "__main__":
                                 vectors.add(v_name)
                 # Сокращаем gateway в которых один входящий или по одному входящему и исходящему вектору
                 gateway_nodes = []
-                gateways4delete = []
-                gateways2finish = []
                 for node in nodes:
                     if node[0] in ['f', 'g']:
                         gateway_nodes.append(node)
                 for node in gateway_nodes:
-                    vectors_in = 0
-                    vectors_out = 0
+                    vectors_in = []
+                    vectors_out = []
                     for vector in vectors:
                         if vector.find('-' + node) > -1:
-                            vectors_in += 1
+                            vectors_in.append(vector)
                         elif vector.find(node + '-') > -1:
-                            vectors_out += 1
+                            vectors_out.append(vector)
                     for vector in reverse_vectors:
                         if vector.find('-' + node) > -1:
-                            vectors_in += 1
+                            vectors_in.append(vector)
                         elif vector.find(node + '-') > -1:
-                            vectors_out += 1
-                    if vectors_in == 1 and vectors_out == 0:
-                        gateways2finish.append(node)
-                    elif vectors_in == 1 and vectors_out == 1:
-                        gateways4delete.append(node)
-
-
+                            vectors_out.append(vector)
+                    if len(vectors_in) > 0 and len(vectors_out) == 0:
+                        # Преобразование gateway без выходов в финиш - замена (добавление и удаление нод и векторов)
+                        nodes.remove(node)
+                        nodes.add('e' + node[1:])
+                        for vector in vectors_in:
+                            if vector in vectors:
+                                vectors.remove(vector)
+                                vectors.add(vector.replace(node, 'e' + node[1:]))
+                            elif vector in reverse_vectors:
+                                reverse_vectors.remove(vector)
+                                reverse_vectors.add(vector.replace(node, 'e' + node[1:]))
+                            else:
+                                print('АВАРИЯ!!!! Так быть не должно никогда!!!!')
+                    elif len(vectors_in) == 1 and len(vectors_out) == 1:
+                        # Сокращение gateway: удаляем gateway, добавляем вектор, заменяющий сокращаемые вектора
+                        nodes.remove(node)
+                        if vectors_in[0] in vectors and vectors_out[0] in vectors:
+                            vectors.add(vectors_in[0].split('-')[0] + '-' + vectors_out[0].split('-')[1])
+                        else:
+                            reverse_vectors.add(vectors_in[0].split('-')[0] + '-' + vectors_out[0].split('-')[1])
+                        # Удаляем векторы
+                        vectors.discard(vectors_in[0])
+                        vectors.discard(vectors_out[0])
+                        reverse_vectors.discard(vectors_in[0])
+                        reverse_vectors.discard(vectors_out[0])
                 bpmn_graph_xml = diagram.BpmnDiagramGraph()
                 bpmn_graph_xml.add_process_to_diagram('process_2')
                 process_id = list(bpmn_graph_xml.process_elements.keys())[0]
@@ -193,7 +210,7 @@ if __name__ == "__main__":
                     if node[0] == 'f':
                         bpmn_graph_xml.add_exclusive_gateway_to_diagram(process_id, '', node_id=node)
                     elif node[0] == 't':
-                        bpmn_graph_xml.add_task_to_diagram(process_id, '', node_id=node)
+                        bpmn_graph_xml.add_task_to_diagram(process_id, statuses[int(node[1:])]['name'], node_id=node)
                     elif node[0] == 's':
                         event_id, event = bpmn_graph_xml.add_flow_node_to_diagram(
                             process_id,
@@ -201,6 +218,8 @@ if __name__ == "__main__":
                             statuses[int(node[1:])]['name'],
                             node_id=node)
                         bpmn_graph_xml.diagram_graph.nodes[event_id][consts.Consts.event_definitions] = []
+                    elif node[0] == 'e':
+                        bpmn_graph_xml.add_end_event_to_diagram(process_id, '', node_id=node)
                 for vector in vectors:
                     bpmn_graph_xml.add_sequence_flow_to_diagram(process_id, vector.split('-')[0], vector.split('-')[1],
                                                                 '')
@@ -215,29 +234,7 @@ if __name__ == "__main__":
                 bpmn_graph_xml.process_elements[process_id]['node_ids'] = list(bpmn_graph_xml.diagram_graph.nodes)
                 bpmn_graph_xml.export_xml_file('./', 'pr' + str(process) + '_tmpl' + tasktemplate + '.bpmn')
 
-    old = """
-    vectors_list = sorted(list(vectors))
-    fork_vectors = set()
-    fork_vectors.add(vectors_list[0])
-    i = 1
-    vectors_rez = []
-    vectors_used = []
-    while i < len(vectors_list):
-        while vectors_list[i].split('-')[0] == vectors_list[i-1].split('-')[0]:
-            fork_vectors.add(vectors_list[i])
-            i += 1
-        if len(fork_vectors) > 1:
-            nodes.add('g' + vectors_list[i-1].split('-')[0])        # Добавляем gateway
-            for vector in vectors_list:                             # Заменяем вход в статус на вход в gateway
-                if vector.split('-')[1] == vectors_list[i-1].split('-')[0] and vector not in vectors_used:
-                    vectors_used.append(vector)
-                    vectors_rez.append(vector.split('-')[0] + '-g' + vector.split('-')[1])
 
-            for vector in fork_vectors:
-                pass
-        fork_vectors = set()
-        fork_vectors.add(vectors_list[i])
-    """
 
 
     q=0
